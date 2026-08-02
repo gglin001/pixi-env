@@ -8,6 +8,8 @@ package:
 source:
   url: https://github.com/herdrdev/herdr/archive/refs/tags/v${{ version }}.tar.gz
   sha256: 5ea0f1003af1801a6a85d201b6fa7e1de46686fccb7df1d3fa3a03c4ec2be68c
+  patches:
+    - patch/0001-prefetch-uucode-from-codeload.patch
 
 build:
   number: 0
@@ -16,7 +18,24 @@ build:
     - export CARGO_TARGET_DIR="$SRC_DIR/target"
     - export LIBGHOSTTY_VT_OPTIMIZE="ReleaseFast"
     - export LIBGHOSTTY_VT_SIMD="true"
+    - |
+      if [[ "${target_platform:-}" == "osx-arm64" ]]; then
+        # The conda macOS toolchain corrupts Rust proc-macro dylibs when
+        # Cargo applies the upstream release-profile debug-info stripping.
+        # Build unstripped, then strip only the final executable with the
+        # system tool after installation.
+        export CARGO_PROFILE_RELEASE_STRIP="none"
+
+        # Zig 0.15 cannot resolve arm64 symbols from SDKs whose top-level
+        # libSystem target is arm64e-only. Let the wrapper select the newest
+        # installed SDK that still exposes arm64-macos.
+        export PATH="$RECIPE_DIR/macos-sdk-tools:$PATH"
+      fi
     - '"$BUILD_PREFIX/bin/cargo" install --locked --no-track --root "$PREFIX" --path . --bin herdr'
+    - |
+      if [[ "${target_platform:-}" == "osx-arm64" ]]; then
+        /usr/bin/strip -S "$PREFIX/bin/herdr"
+      fi
 
 requirements:
   build:
