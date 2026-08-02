@@ -1,0 +1,35 @@
+context:
+  version: "0.7.5"
+
+package:
+  name: herdr
+  version: ${{ version }}
+
+source:
+  url: https://github.com/herdrdev/herdr/archive/refs/tags/v${{ version }}.tar.gz
+  sha256: 5ea0f1003af1801a6a85d201b6fa7e1de46686fccb7df1d3fa3a03c4ec2be68c
+
+build:
+  number: 0
+  script:
+    - export ZIG="$BUILD_PREFIX/bin/zig"
+    - export CARGO_TARGET_DIR="$SRC_DIR/target"
+    - export LIBGHOSTTY_VT_OPTIMIZE="ReleaseFast"
+    - export LIBGHOSTTY_VT_SIMD="true"
+    - '"$BUILD_PREFIX/bin/cargo" install --locked --no-track --root "$PREFIX" --path . --bin herdr'
+
+requirements:
+  build:
+    - ${{ compiler('c') }}
+    - ${{ compiler('rust') }}
+    - zig ==0.15.2
+
+tests:
+  - script:
+      - herdr --version
+
+about:
+  homepage: https://herdr.dev
+  license: AGPL-3.0-or-later
+  license_file: LICENSE
+  summary: Terminal workspace manager for AI coding agents

@@ -1,0 +1,12 @@
+[workspace]
+authors = ["Allen Guo <allenguo@vastaitech.com>"]
+channels = ["conda-forge"]
+name = "pixi-env"
+platforms = ["linux-64", "osx-arm64"]
+version = "0.1.0"
+
+[tasks]
+build = "bash scripts/build.sh"
+
+[dependencies]
+rattler-build = ">=0.72.2,<0.73"
