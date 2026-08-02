@@ -7,6 +7,7 @@ version = "0.1.0"
 
 [tasks]
 build = "bash scripts/build.sh"
+extract = "bash scripts/extract.sh"
 
 [dependencies]
 rattler-build = ">=0.72.2,<0.73"
