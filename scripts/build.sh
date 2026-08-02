@@ -21,6 +21,8 @@ esac
 mkdir -p "$conda_root"
 
 rattler-build build \
+  --no-build-id \
+  --keep-build \
   --recipe-dir "$recipes_root" \
   --target-platform "$target_platform" \
   --output-dir "$conda_root" \

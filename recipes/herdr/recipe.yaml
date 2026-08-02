@@ -15,7 +15,15 @@ build:
   number: 0
   script:
     - export ZIG="$BUILD_PREFIX/bin/zig"
-    - export CARGO_TARGET_DIR="$SRC_DIR/target"
+    # Rattler refreshes SRC_DIR on every build, while BUILD_DIR is stable when
+    # scripts/build.sh uses --no-build-id and --keep-build. Keeping Cargo's
+    # target directory here makes repeat builds incremental.
+    - export CARGO_TARGET_DIR="$BUILD_DIR/cargo-target/${target_platform}"
+    # libghostty-vt is built by Zig from build.rs. Its default local cache sits
+    # inside SRC_DIR, and rattler's isolated HOME puts the global cache there
+    # too. Both would otherwise be discarded on every build.
+    - export ZIG_LOCAL_CACHE_DIR="$BUILD_DIR/zig-local-cache/${target_platform}"
+    - export ZIG_GLOBAL_CACHE_DIR="$BUILD_DIR/zig-global-cache/${target_platform}"
     - export LIBGHOSTTY_VT_OPTIMIZE="ReleaseFast"
     - export LIBGHOSTTY_VT_SIMD="true"
     - |
@@ -31,7 +39,23 @@ build:
         # installed SDK that still exposes arm64-macos.
         export PATH="$RECIPE_DIR/macos-sdk-tools:$PATH"
       fi
-    - '"$BUILD_PREFIX/bin/cargo" install --locked --no-track --root "$PREFIX" --path . --bin herdr'
+    - |
+      persistent_src="$BUILD_DIR/source-cache/${target_platform}"
+      mkdir -p "$persistent_src"
+      "$BUILD_PREFIX/bin/rsync" \
+        --archive \
+        --checksum \
+        --delete \
+        --no-times \
+        --omit-dir-times \
+        --exclude '/.cache/' \
+        --exclude '/.source_info.json' \
+        --exclude '/build_env.sh' \
+        --exclude '/conda_build.log' \
+        --exclude '/conda_build.sh' \
+        --exclude '/vendor/libghostty-vt/zig-out/' \
+        "$SRC_DIR/" "$persistent_src/"
+    - '"$BUILD_PREFIX/bin/cargo" install --locked --no-track --force --root "$PREFIX" --path "$persistent_src" --bin herdr'
     - |
       if [[ "${target_platform:-}" == "osx-arm64" ]]; then
         /usr/bin/strip -S "$PREFIX/bin/herdr"
@@ -41,6 +65,7 @@ requirements:
   build:
     - ${{ compiler('c') }}
     - ${{ compiler('rust') }}
+    - rsync
     - zig ==0.15.2
 
 tests:
