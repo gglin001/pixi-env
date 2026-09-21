@@ -11,3 +11,5 @@ extract = "bash scripts/extract.sh"
 
 [dependencies]
 rattler-build = ">=0.72.2,<0.73"
+micromamba = ">=2.9.0,<3"
+patchelf = ">=0.19.1,<0.20"

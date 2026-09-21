@@ -1,19 +1,11 @@
 # pixi-env
 
 ```sh
-pixi run build
-pixi run build TARGET
+pixi run build                       # Build all packages
+pixi run build TARGET                # Build one package
+pixi run extract                     # Install all packages and dependencies
+pixi run extract TARGET [DEST]       # Install one package, optionally into DEST
 ```
 
-Packages are written to `build/conda/<platform>/`, with incremental build caches
-under `build/conda/bld/`.
-
-```sh
-pixi run extract
-pixi run extract TARGET
-```
-
-Without a target, extraction processes all `.conda` packages for the current
-platform and `noarch`. With a target, it extracts the newest matching package.
-Files are extracted into `build/` by default; an optional second argument sets
-the destination directory.
+Package archives: `build/conda/<platform>/`. Default install location: `build/`,
+with executables in `build/bin/`. Dependencies are installed automatically.
