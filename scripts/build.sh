@@ -2,28 +2,16 @@
 set -euo pipefail
 
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-conda_root="$project_root/build/conda"
-recipes_root="$project_root/recipes"
+recipe_args=(--recipe-dir "$project_root/recipes")
 
-case "$(uname -s)-$(uname -m)" in
-  Linux-x86_64)
-    target_platform="linux-64"
-    ;;
-  Darwin-arm64)
-    target_platform="osx-arm64"
-    ;;
-  *)
-    echo "Unsupported build host: $(uname -s) $(uname -m)" >&2
-    exit 2
-    ;;
-esac
+if [[ -n "${1:-}" && "$1" != -* ]]; then
+  recipe_args=(--recipe "$project_root/recipes/$1")
+  shift
+fi
 
-mkdir -p "$conda_root"
-
-rattler-build build \
+exec rattler-build build \
   --no-build-id \
   --keep-build \
-  --recipe-dir "$recipes_root" \
-  --target-platform "$target_platform" \
-  --output-dir "$conda_root" \
+  "${recipe_args[@]}" \
+  --output-dir "$project_root/build/conda" \
   "$@"

@@ -1,0 +1,63 @@
+context:
+  version: "11.1.1"
+
+package:
+  name: qemu
+  version: ${{ version }}
+
+source:
+  # Equivalent to git@github.com:qemu/qemu.git; rattler requires an SSH URL.
+  git: ssh://git@github.com/qemu/qemu.git
+  branch: stable-11.1
+  depth: 1
+  # Use the bundled firmware binaries; do not fetch all firmware source trees.
+  submodules: false
+
+build:
+  number: 0
+  script: build.sh
+
+requirements:
+  build:
+    - ${{ compiler('c') }}
+    - ${{ compiler('cxx') }}
+    - make
+    - ninja
+    - flex
+    - bison
+    - meson >=1.5
+    - pkg-config
+    - python >=3.10
+    - pip
+    - python-build
+    - setuptools
+    - wheel
+    - git
+    - rsync
+    - dtc >=1.5.1
+  host:
+    - glib >=2.66
+    - pixman
+    - zlib
+    - libslirp >=4.7
+    - libfdt >=1.5.1
+
+tests:
+  - script:
+      - qemu-system-x86_64 --version
+      - qemu-system-aarch64 --version
+      - qemu-system-xtensa --version
+      - qemu-img create -f qcow2 test.qcow2 1M
+      - qemu-img check test.qcow2
+      - if: linux
+        then: qemu-x86_64 --version
+
+about:
+  homepage: https://www.qemu.org/
+  repository: https://github.com/qemu/qemu
+  license: GPL-2.0-only
+  license_file:
+    - COPYING
+    - LICENSE
+    - pc-bios/edk2-licenses.txt
+  summary: Generic machine emulator and virtualizer
