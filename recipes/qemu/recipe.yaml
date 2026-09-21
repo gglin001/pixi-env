@@ -7,7 +7,8 @@ package:
 
 source:
   # Equivalent to git@github.com:qemu/qemu.git; rattler requires an SSH URL.
-  git: ssh://git@github.com/qemu/qemu.git
+  # git: ssh://git@github.com/qemu/qemu.git
+  git: https://mirrors.tuna.tsinghua.edu.cn/git/qemu.git
   branch: stable-11.1
   depth: 1
   # Use the bundled firmware binaries; do not fetch all firmware source trees.
