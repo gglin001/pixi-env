@@ -19,7 +19,10 @@ rsync --archive --checksum --delete --no-times --omit-dir-times \
 platform_args=()
 case "$platform" in
 linux-64) platform_args+=(--enable-linux-user --enable-kvm) ;;
-osx-arm64) platform_args+=(--disable-user --enable-hvf) ;;
+osx-arm64)
+  # QEMU does not read OBJC from the environment and otherwise selects PATH's clang.
+  platform_args+=(--disable-user --enable-hvf --objcc="${OBJC:-$CC}")
+  ;;
 esac
 
 cd "$build_path"
@@ -42,3 +45,9 @@ cd "$build_path"
 
 make -j"$CPU_COUNT"
 make install
+
+if [[ "$platform" == osx-* ]]; then
+  # QEMU's Finder icons prevent rattler-build from re-signing relocated binaries.
+  /usr/bin/xattr -d com.apple.ResourceFork "$PREFIX"/bin/qemu-system-*
+  /usr/bin/xattr -d com.apple.FinderInfo "$PREFIX"/bin/qemu-system-*
+fi
