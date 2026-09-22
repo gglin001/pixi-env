@@ -1,0 +1,49 @@
+context:
+  version: "0.34"
+
+package:
+  name: cloud-utils
+  version: ${{ version }}
+
+source:
+  # Equivalent to git@github.com:canonical/cloud-utils.git; rattler-build
+  # requires the explicit SSH URL form.
+  git: ssh://git@github.com/canonical/cloud-utils.git
+  tag: ${{ version }}
+  depth: 1
+  patches:
+    - patches/0001-cloud-localds-macos-iso.patch
+
+build:
+  number: 0
+  script: build.sh
+
+requirements:
+  build:
+    - python >=3.13
+  run:
+    - python >=3.13
+    - util-linux
+    - coreutils
+    - sed
+    - tar
+
+tests:
+  - script:
+      - cloud-localds --help
+      - growpart --help
+      - mount-image-callback --help
+      - resize-part-image --help
+      - vcs-run --help
+      - write-mime-multipart --help
+      - python test_cloud_utils.py
+    files:
+      recipe:
+        - test_cloud_utils.py
+
+about:
+  homepage: https://github.com/canonical/cloud-utils
+  repository: https://github.com/canonical/cloud-utils
+  license: GPL-3.0-only
+  license_file: LICENSE
+  summary: Utilities for interacting with cloud images and metadata

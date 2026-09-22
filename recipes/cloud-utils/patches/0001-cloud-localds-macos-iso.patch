@@ -1,0 +1,46 @@
+--- a/bin/cloud-localds
++++ b/bin/cloud-localds
+@@ -146,8 +146,8 @@
+ 			fail "missing 'mcopy'. Required for --filesystem=vfat."
+ 		;;
+ 	iso9660)
+-		has_cmd genisoimage ||
+-			fail "missing 'genisoimage'.  Required for --filesystem=iso9660."
++		has_cmd genisoimage || has_cmd hdiutil ||
++			fail "missing genisoimage (or hdiutil on macOS). Required for --filesystem=iso9660."
+ 		;;
+ 	*) fail "unknown filesystem $filesystem";;
+ esac
+@@ -211,7 +211,7 @@
+ 
+ ## alternatively, create a vfat filesystem with same files
+ img="$TEMP_D/seed-data"
+-tar_opts=( --owner=root --group=root )
++tar_opts=( --owner=root:0 --group=root:0 )
+ 
+ case "$filesystem" in
+ 	tar)
+@@ -232,9 +232,20 @@
+ 			fail "failed to create tarball with $path"
+ 		;;
+ 	iso9660)
+-		genisoimage -output "$img" -volid cidata \
+-			-joliet -rock "${files[@]}" > "$TEMP_D/err" 2>&1 ||
+-			{ cat "$TEMP_D/err" 1>&2; fail "failed to genisoimage"; }
++		if has_cmd genisoimage; then
++			genisoimage -output "$img" -volid cidata \
++				-joliet -rock "${files[@]}" > "$TEMP_D/err" 2>&1 ||
++				{ cat "$TEMP_D/err" 1>&2; fail "failed to genisoimage"; }
++		else
++			# hdiutil takes a directory. Keep output and logs outside it.
++			mkdir "$TEMP_D/iso-root" &&
++				cp "${files[@]}" "$TEMP_D/iso-root/" ||
++				fail "failed to stage ISO contents"
++			hdiutil makehybrid -iso -joliet -default-volume-name cidata \
++				-o "$img.iso" "$TEMP_D/iso-root" > "$TEMP_D/err" 2>&1 ||
++				{ cat "$TEMP_D/err" 1>&2; fail "failed to hdiutil makehybrid"; }
++			mv "$img.iso" "$img" || fail "failed to move ISO image"
++		fi
+ 		;;
+ 	vfat)
+ 		truncate -s 128K "$img" || fail "failed truncate image"
