@@ -15,7 +15,7 @@ source:
   submodules: false
 
 build:
-  number: 0
+  number: 1
   script: build.sh
 
 requirements:
@@ -50,6 +50,12 @@ tests:
       - qemu-system-xtensa --version
       - qemu-img create -f qcow2 test.qcow2 1M
       - qemu-img check test.qcow2
+      - test -s "$PREFIX/share/qemu/edk2-aarch64-code.fd"
+      - test -s "$PREFIX/share/qemu/edk2-arm-vars.fd"
+      - test -s "$PREFIX/share/qemu/firmware/60-edk2-aarch64.json"
+      - echo quit | qemu-system-aarch64 -machine virt -accel tcg -cpu max -bios edk2-aarch64-code.fd -S -display none -serial none -monitor stdio
+      - if: osx and arm64
+        then: echo quit | qemu-system-aarch64 -machine virt -accel hvf -cpu host -bios edk2-aarch64-code.fd -S -display none -serial none -monitor stdio
       - if: linux
         then: qemu-x86_64 --version
 

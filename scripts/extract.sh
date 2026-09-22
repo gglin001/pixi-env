@@ -52,9 +52,14 @@ if [[ ${#package_files[@]} -eq 0 ]]; then
 fi
 
 package_specs=()
+install_args=(--repodata-ttl 0 --force-reinstall)
 for package_file in "${package_files[@]}"; do
   package_stem="${package_file##*/}"
   package_stem="${package_stem%.conda}"
+  # --force-reinstall can keep an older installed build despite an exact spec.
+  if [[ ! -f "$destination/conda-meta/$package_stem.json" ]]; then
+    install_args=(--repodata-ttl 0)
+  fi
   package_build="${package_stem##*-}"
   package_stem="${package_stem%-*}"
   package_version="${package_stem##*-}"
@@ -68,8 +73,15 @@ touch "$destination/conda-meta/history"
 
 # Installing by channel MatchSpec resolves runtime dependencies and relocates
 # prefixes. Passing archive paths directly would skip dependency resolution.
-exec micromamba install --yes --no-rc \
+micromamba install --yes --no-rc \
   --prefix "$destination" \
   --override-channels --channel "$conda_root" --channel conda-forge \
-  --repodata-ttl 0 --force-reinstall \
+  "${install_args[@]}" \
   "${package_specs[@]}"
+
+# micromamba re-signs relocated Mach-O files without preserving entitlements.
+if [[ "$target_platform" == osx-arm64 && " ${package_names[*]} " == *" qemu "* ]]; then
+  /usr/bin/codesign --force --sign - \
+    --entitlements "$destination/share/qemu/hvf-entitlements.plist" \
+    "$destination/bin/qemu-system-aarch64"
+fi

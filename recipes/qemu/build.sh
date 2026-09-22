@@ -37,6 +37,7 @@ cd "$build_path"
   --enable-system \
   --enable-tcg \
   --enable-tools \
+  --enable-install-blobs \
   --enable-fdt=system \
   --enable-pixman \
   --enable-slirp \
@@ -50,4 +51,7 @@ if [[ "$platform" == osx-* ]]; then
   # QEMU's Finder icons prevent rattler-build from re-signing relocated binaries.
   /usr/bin/xattr -d com.apple.ResourceFork "$PREFIX"/bin/qemu-system-*
   /usr/bin/xattr -d com.apple.FinderInfo "$PREFIX"/bin/qemu-system-*
+  # Keep the entitlement available after package managers relocate the binary.
+  install -m 644 "$persistent_src/accel/hvf/entitlements.plist" \
+    "$PREFIX/share/qemu/hvf-entitlements.plist"
 fi
