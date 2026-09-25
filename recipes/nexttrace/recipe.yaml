@@ -1,0 +1,40 @@
+context:
+  version: "1.7.3"
+
+package:
+  name: nexttrace
+  version: ${{ version }}
+
+source:
+  git: ssh://git@github.com/nxtrace/NTrace-core.git
+  tag: v${{ version }}
+  depth: 1
+
+build:
+  number: 0
+  script:
+    file: build.sh
+    env:
+      GOPROXY: ${{ env.get('GOPROXY', default='') }}
+
+requirements:
+  build:
+    - go >=1.26.5,<1.27
+    - git
+    - if: osx
+      then: ${{ compiler('c') }}
+  host:
+    - if: osx
+      then: libpcap
+
+tests:
+  - script:
+      - nexttrace --help
+      - nexttrace --version | grep -F "v${{ version }}"
+
+about:
+  homepage: https://www.nxtrace.org
+  repository: https://github.com/nxtrace/NTrace-core
+  license: GPL-3.0-only
+  license_file: LICENSE
+  summary: Visual traceroute tool with IP geolocation and MTR support
