@@ -8,6 +8,7 @@ pixi run extract TARGET [DEST]       # Install one package, optionally into DEST
 ```
 
 ```sh
+# no GOPROXY
 GOPROXY=direct pixi run build nexttrace
 ```
 
