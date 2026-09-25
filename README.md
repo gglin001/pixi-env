@@ -7,5 +7,5 @@ pixi run extract                     # Install all packages and dependencies
 pixi run extract TARGET [DEST]       # Install one package, optionally into DEST
 ```
 
-Package archives: `build/conda/<platform>/`. Default install location: `build/`,
-with executables in `build/bin/`. Dependencies are installed automatically.
+Package archives: `build/conda/<platform>/`. Default install location: `extract/`,
+with executables in `extract/bin/`. Dependencies are installed automatically.

@@ -4,7 +4,7 @@ set -euo pipefail
 project_root="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 conda_root="$project_root/build/conda"
 package_name="${1:-}"
-destination="${2:-$project_root/build}"
+destination="${2:-$project_root/extract}"
 
 case "$(uname -s)-$(uname -m)" in
   Linux-x86_64)
@@ -51,6 +51,10 @@ if [[ ${#package_files[@]} -eq 0 ]]; then
   exit 1
 fi
 
+# Rebuilds can replace an archive without changing its filename. Refresh the
+# channel records so installation uses the current size, hashes and metadata.
+rattler-index fs "$conda_root" --force
+
 package_specs=()
 install_args=(--repodata-ttl 0 --force-reinstall)
 for package_file in "${package_files[@]}"; do
@@ -66,8 +70,8 @@ for package_file in "${package_files[@]}"; do
   package_specs+=("$conda_root::${package_stem%-*}=$package_version=$package_build")
 done
 
-# Initialize metadata without recreating build/, which also holds packages and
-# incremental build caches. Existing extracted files are replaced on install.
+# Initialize metadata without recreating the destination directory.
+# Existing extracted files are replaced on install.
 mkdir -p "$destination/conda-meta"
 touch "$destination/conda-meta/history"
 
