@@ -1,20 +1,21 @@
 context:
-  version: "0.7.5"
+  version: "0.9.1"
 
 package:
   name: herdr
   version: ${{ version }}
 
 source:
-  url: https://github.com/herdrdev/herdr/archive/refs/tags/v${{ version }}.tar.gz
-  sha256: 5ea0f1003af1801a6a85d201b6fa7e1de46686fccb7df1d3fa3a03c4ec2be68c
-  patches:
-    - patch/0001-prefetch-uucode-from-codeload.patch
+  git: ssh://git@github.com/herdrdev/herdr.git
+  tag: v${{ version }}
+  depth: 1
 
 build:
   number: 0
   script:
     - export ZIG="$BUILD_PREFIX/bin/zig"
+    # Keep proc-macro dylibs loadable: conda's macOS strip can misalign LINKEDIT.
+    - export CARGO_PROFILE_RELEASE_STRIP="none"
     # Rattler refreshes SRC_DIR on every build, while BUILD_DIR is stable when
     # scripts/build.sh uses --no-build-id and --keep-build. Keeping Cargo's
     # target directory here makes repeat builds incremental.
@@ -26,19 +27,6 @@ build:
     - export ZIG_GLOBAL_CACHE_DIR="$BUILD_DIR/zig-global-cache/${target_platform}"
     - export LIBGHOSTTY_VT_OPTIMIZE="ReleaseFast"
     - export LIBGHOSTTY_VT_SIMD="true"
-    - |
-      if [[ "${target_platform:-}" == "osx-arm64" ]]; then
-        # The conda macOS toolchain corrupts Rust proc-macro dylibs when
-        # Cargo applies the upstream release-profile debug-info stripping.
-        # Build unstripped, then strip only the final executable with the
-        # system tool after installation.
-        export CARGO_PROFILE_RELEASE_STRIP="none"
-
-        # Zig 0.15 cannot resolve arm64 symbols from SDKs whose top-level
-        # libSystem target is arm64e-only. Let the wrapper select the newest
-        # installed SDK that still exposes arm64-macos.
-        export PATH="$RECIPE_DIR/macos-sdk-tools:$PATH"
-      fi
     - |
       persistent_src="$BUILD_DIR/source-cache/${target_platform}"
       mkdir -p "$persistent_src"
@@ -56,24 +44,20 @@ build:
         --exclude '/vendor/libghostty-vt/zig-out/' \
         "$SRC_DIR/" "$persistent_src/"
     - '"$BUILD_PREFIX/bin/cargo" install --locked --no-track --force --root "$PREFIX" --path "$persistent_src" --bin herdr'
-    - |
-      if [[ "${target_platform:-}" == "osx-arm64" ]]; then
-        /usr/bin/strip -S "$PREFIX/bin/herdr"
-      fi
 
 requirements:
   build:
     - ${{ compiler('c') }}
     - ${{ compiler('rust') }}
     - rsync
-    - zig ==0.15.2
+    - zig ==0.16.0
 
 tests:
   - script:
-      - herdr --version
+      - test "$(herdr --version)" = "herdr ${{ version }}"
 
 about:
   homepage: https://herdr.dev
-  license: AGPL-3.0-or-later
+  license: Apache-2.0
   license_file: LICENSE
   summary: Terminal workspace manager for AI coding agents
