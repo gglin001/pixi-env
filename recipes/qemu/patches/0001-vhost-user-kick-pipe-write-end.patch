@@ -1,0 +1,32 @@
+Subject: [PATCH] vhost-user: inject initial kicks through EventNotifier
+
+The descriptor sent with SET_VRING_KICK is the backend's read descriptor.
+On hosts using pipes instead of eventfd, writing to this descriptor fails
+with EBADF and prevents vhost-user devices from starting. Use the queue's
+EventNotifier so the kick goes to its write end on all supported hosts.
+
+--- a/hw/virtio/vhost-user.c
++++ b/hw/virtio/vhost-user.c
+@@ -1500,17 +1500,13 @@ static int vhost_user_set_vring_kick(struct vhost_dev *dev,
+      * receiving a kick. The spec suggests this to improve compatibility.
+      */
+     if (file->fd != -1) {
+-        uint64_t val = 1;
+-        ssize_t nwritten;
++        VirtQueue *vq = virtio_get_queue(dev->vdev, file->index);
+ 
+-        do {
+-            nwritten = write(file->fd, &val, sizeof(val));
+-        } while (nwritten < 0 && errno == EINTR);
+-
+-        if (nwritten < 0 && errno != EAGAIN /* back-end can already read */) {
+-            return -errno;
+-        }
++        /*
++         * file->fd is the read end on hosts using pipes. EventNotifier knows
++         * the corresponding write end and also handles EINTR and EAGAIN.
++         */
++        return event_notifier_set(virtio_queue_get_host_notifier(vq));
+     }
+ 
+     return 0;

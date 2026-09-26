@@ -1,0 +1,440 @@
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -62,3 +62,7 @@
+ 
+ [dev-dependencies.serde_json]
+ version = "1.0.9"
++
++[[test]]
++name = "macos_transport"
++path = "tests/macos_transport.rs"
+--- a/src/lib.rs
++++ b/src/lib.rs
+@@ -24,3 +24,11 @@
+ pub mod rand;
+ pub mod syscall;
+ pub mod tempfile;
++
++#[cfg(target_os = "macos")]
++#[path = "macos/epoll.rs"]
++pub mod epoll;
++
++#[cfg(target_os = "macos")]
++#[path = "macos/signal.rs"]
++pub mod signal;
+--- a/src/unix/event.rs
++++ b/src/unix/event.rs
+@@ -48,6 +48,17 @@
+     /// Writing 1 to fd is for compatibility with Eventfd
+     pub fn notify(&self) -> Result<(), io::Error> {
+         let v = 1u64;
++        #[cfg(target_os = "macos")]
++        {
++            // A full nonblocking pipe already represents a pending notification.
++            // Match QEMU's EventNotifier semantics and avoid failing a virtqueue
++            // merely because completions were batched faster than it woke up.
++            return match (&self.fd).write_all(&v.to_ne_bytes()) {
++                Err(e) if e.kind() == io::ErrorKind::WouldBlock => Ok(()),
++                result => result,
++            };
++        }
++        #[cfg(not(target_os = "macos"))]
+         (&self.fd).write_all(&v.to_ne_bytes())
+     }
+ 
+@@ -100,8 +111,25 @@
+ impl EventConsumer {
+     /// Read a value from the EventConsumer.
+     pub fn consume(&self) -> Result<(), io::Error> {
++        #[cfg(target_os = "macos")]
++        {
++            // Pipes do not combine counters as eventfd does. Consume a batch in
++            // one syscall; level-triggered kqueue handles any remaining bytes.
++            let mut buf = [0u8; 4096];
++            loop {
++                match (&self.fd).read(&mut buf) {
++                    Ok(0) => return Err(io::Error::from(io::ErrorKind::UnexpectedEof)),
++                    Ok(_) => return Ok(()),
++                    Err(e) if e.kind() == io::ErrorKind::Interrupted => continue,
++                    Err(e) => return Err(e),
++                }
++            }
++        }
++        #[cfg(not(target_os = "macos"))]
++        {
+         let mut buf = [0u8; size_of::<u64>()];
+         (&self.fd).read_exact(buf.as_mut_slice()).map(|_| Ok(()))?
++        }
+     }
+ 
+     /// Clone this EventConsumer.
+--- /dev/null
++++ b/src/macos/epoll.rs
+@@ -0,0 +1,239 @@
++// SPDX-License-Identifier: BSD-3-Clause
++//! The epoll interface used by vhost-user, implemented with native kqueue.
++//!
++//! Registrations are level-triggered by default, as on Linux. No helper threads
++//! or periodic polling are needed, and ready events are returned in batches.
++
++use std::collections::HashMap;
++use std::io;
++use std::os::fd::{AsRawFd, FromRawFd, OwnedFd, RawFd};
++use std::sync::Mutex;
++
++/// Operation on a descriptor registration.
++#[derive(Debug)]
++pub enum ControlOperation {
++    /// Register a new descriptor.
++    Add,
++    /// Replace an existing registration.
++    Modify,
++    /// Remove an existing registration.
++    Delete,
++}
++
++bitflags::bitflags! {
++    /// Readiness and registration flags, using the Linux bit assignments.
++    pub struct EventSet: u32 {
++        /// Data can be read.
++        const IN = 0x001;
++        /// Exceptional data, unsupported on this backend.
++        const PRIORITY = 0x002;
++        /// Data can be written.
++        const OUT = 0x004;
++        /// An error occurred.
++        const ERROR = 0x008;
++        /// The peer closed the descriptor.
++        const HANG_UP = 0x010;
++        /// The peer closed its write side.
++        const READ_HANG_UP = 0x2000;
++        /// Exclusive wakeups, unsupported on this backend.
++        const EXCLUSIVE = 1 << 28;
++        /// Suspend inhibition, unsupported on this backend.
++        const WAKE_UP = 1 << 29;
++        /// Disable the registration after one event.
++        const ONE_SHOT = 1 << 30;
++        /// Report transitions instead of persistent readiness.
++        const EDGE_TRIGGERED = 1 << 31;
++    }
++}
++
++/// A readiness event and its caller-supplied token.
++#[derive(Debug, Default, Copy, Clone)]
++pub struct EpollEvent {
++    /// Readiness bits.
++    pub events: u32,
++    data: u64,
++}
++
++impl EpollEvent {
++    /// Construct an event.
++    pub fn new(events: EventSet, data: u64) -> Self {
++        Self {
++            events: events.bits(),
++            data,
++        }
++    }
++    /// Return readiness bits.
++    pub fn events(&self) -> u32 {
++        self.events
++    }
++    /// Return the readiness set.
++    pub fn event_set(&self) -> EventSet {
++        EventSet::from_bits_truncate(self.events)
++    }
++    /// Return the caller-supplied token.
++    pub fn data(&self) -> u64 {
++        self.data
++    }
++    /// Interpret the token as a descriptor.
++    pub fn fd(&self) -> RawFd {
++        self.data as RawFd
++    }
++}
++
++/// Native kqueue with the epoll API needed by vhost-user-backend.
++#[derive(Debug)]
++pub struct Epoll {
++    fd: OwnedFd,
++    registrations: Mutex<HashMap<RawFd, EventSet>>,
++}
++
++impl Epoll {
++    /// Create a queue with close-on-exec set.
++    pub fn new() -> io::Result<Self> {
++        // SAFETY: kqueue has no pointer arguments and returns a newly owned fd.
++        let raw = unsafe { libc::kqueue() };
++        if raw < 0 {
++            return Err(io::Error::last_os_error());
++        }
++        // SAFETY: raw is a newly allocated descriptor owned by this instance.
++        let fd = unsafe { OwnedFd::from_raw_fd(raw) };
++        // SAFETY: fd is valid and F_SETFD takes an integer argument.
++        if unsafe { libc::fcntl(raw, libc::F_SETFD, libc::FD_CLOEXEC) } < 0 {
++            return Err(io::Error::last_os_error());
++        }
++        Ok(Self {
++            fd,
++            registrations: Mutex::new(HashMap::new()),
++        })
++    }
++
++    /// Add, replace, or remove a descriptor registration.
++    pub fn ctl(&self, operation: ControlOperation, fd: RawFd, event: EpollEvent) -> io::Result<()> {
++        let requested = event.event_set();
++        if requested.intersects(EventSet::PRIORITY | EventSet::EXCLUSIVE | EventSet::WAKE_UP) {
++            return Err(io::Error::from_raw_os_error(libc::ENOTSUP));
++        }
++        let mut registrations = self.registrations.lock().unwrap();
++        let previous = registrations.get(&fd).copied();
++        match operation {
++            ControlOperation::Add if previous.is_some() => {
++                return Err(io::Error::from_raw_os_error(libc::EEXIST))
++            }
++            ControlOperation::Modify | ControlOperation::Delete if previous.is_none() => {
++                return Err(io::Error::from_raw_os_error(libc::ENOENT))
++            }
++            _ => {}
++        }
++        let desired = if matches!(operation, ControlOperation::Delete) {
++            EventSet::empty()
++        } else {
++            requested
++        };
++        for (interest, filter) in [
++            (EventSet::IN, libc::EVFILT_READ),
++            (EventSet::OUT, libc::EVFILT_WRITE),
++        ] {
++            let flags = if desired.contains(interest) {
++                libc::EV_ADD
++                    | libc::EV_ENABLE
++                    | if desired.contains(EventSet::EDGE_TRIGGERED) {
++                        libc::EV_CLEAR
++                    } else {
++                        0
++                    }
++                    | if desired.contains(EventSet::ONE_SHOT) {
++                        libc::EV_DISPATCH
++                    } else {
++                        0
++                    }
++            } else if previous.is_some_and(|old| old.contains(interest)) {
++                libc::EV_DELETE
++            } else {
++                continue;
++            };
++            let change = libc::kevent {
++                ident: fd as libc::uintptr_t,
++                filter,
++                flags,
++                fflags: 0,
++                data: 0,
++                udata: event.data as usize as *mut libc::c_void,
++            };
++            // SAFETY: change references one initialized event; no output array is supplied.
++            if unsafe {
++                libc::kevent(
++                    self.fd.as_raw_fd(),
++                    &change,
++                    1,
++                    std::ptr::null_mut(),
++                    0,
++                    std::ptr::null(),
++                )
++            } < 0
++            {
++                return Err(io::Error::last_os_error());
++            }
++        }
++        if matches!(operation, ControlOperation::Delete) {
++            registrations.remove(&fd);
++        } else {
++            registrations.insert(fd, desired);
++        }
++        Ok(())
++    }
++
++    /// Wait for readiness, with a timeout in milliseconds or -1 for no timeout.
++    pub fn wait(&self, timeout: i32, events: &mut [EpollEvent]) -> io::Result<usize> {
++        if events.is_empty() {
++            return Err(io::Error::from_raw_os_error(libc::EINVAL));
++        }
++        // A fixed stack buffer avoids allocation on the virtqueue hot path.
++        // SAFETY: a zeroed kevent is valid as an output-only event record.
++        let mut ready: [libc::kevent; 128] = unsafe { std::mem::zeroed() };
++        let limit = events.len().min(ready.len());
++        let duration = libc::timespec {
++            tv_sec: (timeout.max(0) / 1000) as libc::time_t,
++            tv_nsec: ((timeout.max(0) % 1000) * 1_000_000) as libc::c_long,
++        };
++        let deadline = if timeout < 0 {
++            std::ptr::null()
++        } else {
++            &duration
++        };
++        // SAFETY: ready contains limit writable records; deadline is null or valid.
++        let count = unsafe {
++            libc::kevent(
++                self.fd.as_raw_fd(),
++                std::ptr::null(),
++                0,
++                ready.as_mut_ptr(),
++                limit as i32,
++                deadline,
++            )
++        };
++        if count < 0 {
++            return Err(io::Error::last_os_error());
++        }
++        for (output, input) in events.iter_mut().zip(ready.iter()).take(count as usize) {
++            let mut flags = if input.filter == libc::EVFILT_READ {
++                EventSet::IN
++            } else {
++                EventSet::OUT
++            };
++            if input.flags & libc::EV_EOF != 0 {
++                flags |= EventSet::HANG_UP;
++            }
++            if input.flags & libc::EV_ERROR != 0 {
++                flags |= EventSet::ERROR;
++            }
++            *output = EpollEvent::new(flags, input.udata as usize as u64);
++        }
++        Ok(count as usize)
++    }
++}
++
++impl AsRawFd for Epoll {
++    fn as_raw_fd(&self) -> RawFd {
++        self.fd.as_raw_fd()
++    }
++}
+--- /dev/null
++++ b/src/macos/signal.rs
+@@ -0,0 +1,25 @@
++// SPDX-License-Identifier: BSD-3-Clause
++//! Signal-handler registration on macOS.
++
++use std::io;
++
++/// Register a SA_SIGINFO signal handler.
++pub fn register_signal_handler(
++    signal: libc::c_int,
++    handler: extern "C" fn(libc::c_int, *mut libc::siginfo_t, *mut libc::c_void),
++) -> io::Result<()> {
++    // SAFETY: All-zero signal masks and unused sigaction fields are valid here.
++    let mut action: libc::sigaction = unsafe { std::mem::zeroed() };
++    action.sa_sigaction = handler as usize;
++    action.sa_flags = libc::SA_SIGINFO;
++    // Match the Linux helper: do not interrupt a running handler with another signal.
++    // SAFETY: action.sa_mask is a valid writable signal set.
++    if unsafe { libc::sigfillset(&mut action.sa_mask) } < 0 {
++        return Err(io::Error::last_os_error());
++    }
++    // SAFETY: action is initialized, and sigaction copies it before returning.
++    if unsafe { libc::sigaction(signal, &action, std::ptr::null_mut()) } < 0 {
++        return Err(io::Error::last_os_error());
++    }
++    Ok(())
++}
+--- /dev/null
++++ b/tests/macos_transport.rs
+@@ -0,0 +1,97 @@
++#![cfg(target_os = "macos")]
++
++use std::os::fd::AsRawFd;
++use std::sync::Arc;
++use std::time::Duration;
++use vmm_sys_util::epoll::{ControlOperation, Epoll, EpollEvent, EventSet};
++use vmm_sys_util::event::{new_event_consumer_and_notifier, EventFlag};
++
++#[test]
++fn pipe_notifications_are_batched_and_level_triggered() {
++    let (consumer, notifier) =
++        new_event_consumer_and_notifier(EventFlag::NONBLOCK | EventFlag::CLOEXEC).unwrap();
++    let poller = Epoll::new().unwrap();
++    poller
++        .ctl(
++            ControlOperation::Add,
++            consumer.as_raw_fd(),
++            EpollEvent::new(EventSet::IN, 17),
++        )
++        .unwrap();
++    // Overflow a nonblocking pipe; notification coalescing must avoid errors.
++    for _ in 0..100_000 {
++        notifier.notify().unwrap();
++    }
++    let mut events = [EpollEvent::default(); 8];
++    let mut wakes = 0;
++    while poller.wait(0, &mut events).unwrap() != 0 {
++        assert_eq!(events[0].data(), 17);
++        assert_eq!(events[0].event_set(), EventSet::IN);
++        consumer.consume().unwrap();
++        wakes += 1;
++        assert!(wakes < 100);
++    }
++    assert!(wakes > 0);
++    notifier.notify().unwrap();
++    assert_eq!(poller.wait(100, &mut events).unwrap(), 1);
++    consumer.consume().unwrap();
++    assert_eq!(poller.wait(0, &mut events).unwrap(), 0);
++}
++
++#[test]
++fn blocking_wait_wakes_after_concurrent_registration() {
++    let poller = Arc::new(Epoll::new().unwrap());
++    let waiter = poller.clone();
++    let thread = std::thread::spawn(move || {
++        let mut events = [EpollEvent::default(); 1];
++        assert_eq!(waiter.wait(1000, &mut events).unwrap(), 1);
++        assert_eq!(events[0].data(), 123);
++    });
++    std::thread::sleep(Duration::from_millis(20));
++    let (consumer, notifier) = new_event_consumer_and_notifier(EventFlag::NONBLOCK).unwrap();
++    poller
++        .ctl(
++            ControlOperation::Add,
++            consumer.as_raw_fd(),
++            EpollEvent::new(EventSet::IN, 123),
++        )
++        .unwrap();
++    notifier.notify().unwrap();
++    thread.join().unwrap();
++}
++
++#[test]
++fn registrations_can_be_modified_removed_and_reused() {
++    let poller = Epoll::new().unwrap();
++    let (consumer, notifier) = new_event_consumer_and_notifier(EventFlag::NONBLOCK).unwrap();
++    let event = EpollEvent::new(EventSet::IN, 7);
++    poller
++        .ctl(ControlOperation::Add, consumer.as_raw_fd(), event)
++        .unwrap();
++    assert_eq!(
++        poller
++            .ctl(ControlOperation::Add, consumer.as_raw_fd(), event)
++            .unwrap_err()
++            .raw_os_error(),
++        Some(libc::EEXIST)
++    );
++    poller
++        .ctl(
++            ControlOperation::Modify,
++            consumer.as_raw_fd(),
++            EpollEvent::new(EventSet::IN, 9),
++        )
++        .unwrap();
++    notifier.notify().unwrap();
++    let mut events = [EpollEvent::default(); 1];
++    assert_eq!(poller.wait(0, &mut events).unwrap(), 1);
++    assert_eq!(events[0].data(), 9);
++    poller
++        .ctl(ControlOperation::Delete, consumer.as_raw_fd(), event)
++        .unwrap();
++    assert_eq!(poller.wait(0, &mut events).unwrap(), 0);
++    poller
++        .ctl(ControlOperation::Add, consumer.as_raw_fd(), event)
++        .unwrap();
++    assert_eq!(poller.wait(0, &mut events).unwrap(), 1);
++}

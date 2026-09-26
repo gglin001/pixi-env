@@ -1,0 +1,65 @@
+context:
+  version: "1.14.0"
+
+package:
+  name: virtiofsd
+  version: ${{ version }}
+
+source:
+  # Latest upstream release checked through the GitLab releases API on 2026-09-25 UTC.
+  # v1.14.0 peels to c2540f8db14caba81c1e37fba23fc7bf2cd7f0dd.
+  - git: ssh://git@gitlab.com/virtio-fs/virtiofsd.git
+    tag: v${{ version }}
+    depth: 1
+    patches:
+      - patches/0001-macos.patch
+  - url: https://static.crates.io/crates/vhost/vhost-0.16.0.crate
+    file_name: vhost-0.16.0.tar.gz
+    sha256: ee90657203a8644e9a0860a0db6a7887d8ef0c7bc09fc22dfa4ae75df65bac86
+    target_directory: vendor/vhost
+  - url: https://static.crates.io/crates/vmm-sys-util/vmm-sys-util-0.15.0.crate
+    file_name: vmm-sys-util-0.15.0.tar.gz
+    sha256: 506c62fdf617a5176827c2f9afbcf1be155b03a9b4bf9617a60dbc07e3a1642f
+    target_directory: vendor/vmm-sys-util
+
+build:
+  number: 0
+  script: build.sh
+
+requirements:
+  build:
+    - ${{ compiler('c') }}
+    - ${{ compiler('rust') }}
+    - pkg-config
+    - git
+    - tar
+    - patch
+  host:
+    - if: linux
+      then:
+        - libcap-ng
+        - libseccomp
+
+tests:
+  - script:
+      - virtiofsd --version | grep -F "virtiofsd ${{ version }}"
+      - virtiofsd --help
+      - virtiofsd --print-capabilities
+      - if: osx
+        then: python test_vhost_user.py
+    requirements:
+      run:
+        - python >=3.11
+    files:
+      recipe:
+        - test_vhost_user.py
+
+about:
+  homepage: https://virtio-fs.gitlab.io/
+  repository: https://gitlab.com/virtio-fs/virtiofsd
+  license: Apache-2.0 AND BSD-3-Clause
+  license_file:
+    - LICENSE-APACHE
+    - LICENSE-BSD-3-Clause
+    - vendor/vmm-sys-util/LICENSE-BSD-3-Clause
+  summary: Virtio-fs vhost-user filesystem daemon with native macOS support

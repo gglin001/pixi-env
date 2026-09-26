@@ -13,9 +13,11 @@ source:
   depth: 1
   # Use the bundled firmware binaries; do not fetch all firmware source trees.
   submodules: false
+  patches:
+    - patches/0001-vhost-user-kick-pipe-write-end.patch
 
 build:
-  number: 1
+  number: 2
   script: build.sh
 
 requirements:
@@ -50,6 +52,7 @@ tests:
       - qemu-system-xtensa --version
       - qemu-img create -f qcow2 test.qcow2 1M
       - qemu-img check test.qcow2
+      - qemu-system-aarch64 -device vhost-user-fs-pci,help
       - test -s "$PREFIX/share/qemu/edk2-aarch64-code.fd"
       - test -s "$PREFIX/share/qemu/edk2-arm-vars.fd"
       - test -s "$PREFIX/share/qemu/firmware/60-edk2-aarch64.json"

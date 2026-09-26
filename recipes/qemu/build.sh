@@ -41,6 +41,7 @@ cd "$build_path"
   --enable-fdt=system \
   --enable-pixman \
   --enable-slirp \
+  --enable-vhost-user \
   --enable-vnc \
   "${platform_args[@]}"
 
