@@ -89,3 +89,9 @@ if [[ "$target_platform" == osx-arm64 && " ${package_names[*]} " == *" qemu "* ]
     --entitlements "$destination/share/qemu/hvf-entitlements.plist" \
     "$destination/bin/qemu-system-aarch64"
 fi
+
+if [[ "$target_platform" == osx-arm64 && " ${package_names[*]} " == *" vfkit "* ]]; then
+  /usr/bin/codesign --force --sign - \
+    --entitlements "$destination/share/vfkit/vf.entitlements" \
+    "$destination/bin/vfkit"
+fi

@@ -1,0 +1,42 @@
+context:
+  version: "0.6.4"
+
+package:
+  name: vfkit
+  version: ${{ version }}
+
+source:
+  git: ssh://git@github.com/crc-org/vfkit.git
+  tag: v${{ version }}
+  depth: 1
+
+build:
+  number: 0
+  skip: target_platform != "osx-arm64"
+  script:
+    file: build.sh
+    env:
+      GOPROXY: ${{ env.get('GOPROXY', default='') }}
+      MACOSX_DEPLOYMENT_TARGET: "13.0"
+
+requirements:
+  build:
+    - go >=1.26.5,<1.27
+    - ${{ compiler('c') }}
+    - git
+  run:
+    - __osx >=13.0
+
+tests:
+  - script:
+      - vfkit --help
+      - 'test "$(vfkit --version)" = "vfkit version: v${{ version }}"'
+      - /usr/bin/codesign --verify --strict "$PREFIX/bin/vfkit"
+      - /usr/bin/codesign --display --entitlements - --xml "$PREFIX/bin/vfkit" | /usr/bin/plutil -extract 'com\.apple\.security\.virtualization' raw - | grep -x true
+
+about:
+  homepage: https://github.com/crc-org/vfkit
+  repository: https://github.com/crc-org/vfkit
+  license: Apache-2.0
+  license_file: LICENSE
+  summary: Run lightweight virtual machines with Apple's Virtualization framework
