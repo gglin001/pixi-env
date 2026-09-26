@@ -7,6 +7,8 @@ default-channels = ["conda-forge"]
 "https://conda.anaconda.org/conda-forge" = [
   # "oci://ghcr.io/channel-mirrors/conda-forge",
   # "https://mirrors.tuna.tsinghua.edu.cn/anaconda/cloud/conda-forge",
+  "https://mirror.nju.edu.cn/anaconda/cloud/conda-forge/",
+  "https://mirrors.pku.edu.cn/anaconda/cloud/conda-forge/",
   "http://mirrors.cernet.edu.cn/anaconda/cloud/conda-forge",
   "https://conda.anaconda.org/conda-forge",
   "https://prefix.dev/conda-forge",
