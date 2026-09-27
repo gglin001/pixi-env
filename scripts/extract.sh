@@ -6,12 +6,19 @@ conda_root="$project_root/build/conda"
 package_name="${1:-}"
 destination="${2:-$project_root/extract}"
 
+SECONDS=0
+log() {
+  printf '[extract +%ss] %s\n' "$SECONDS" "$*" >&2
+}
+
 case "$(uname -s)-$(uname -m)" in
   Linux-x86_64)
     target_platform="linux-64"
+    checksum_command=(sha256sum)
     ;;
   Darwin-arm64)
     target_platform="osx-arm64"
+    checksum_command=(shasum -a 256)
     ;;
   *)
     echo "Unsupported build host: $(uname -s) $(uname -m)" >&2
@@ -41,7 +48,7 @@ for package_dir in "$conda_root/$target_platform" "$conda_root/noarch"; do
       package_names+=("$candidate_name")
       package_files+=("$candidate")
     elif [[ "$candidate" -nt "${package_files[$package_index]}" ]]; then
-      package_files[$package_index]="$candidate"
+      package_files[package_index]="$candidate"
     fi
   done
 done
@@ -51,18 +58,37 @@ if [[ ${#package_files[@]} -eq 0 ]]; then
   exit 1
 fi
 
-# Rebuilds can replace an archive without changing its filename. Refresh the
-# channel records so installation uses the current size, hashes and metadata.
-rattler-index fs "$conda_root" --force
+log "Selected ${#package_files[@]} package(s) for $target_platform; destination: $destination"
+
+# The indexer reuses records by filename. Hash the archives to detect same-name
+# rebuilds, but avoid decompressing their metadata again on unchanged runs.
+log "Checking local channel archives"
+index_state="$conda_root/.extract-index.sha256"
+current_index_state="$(mktemp "$conda_root/.extract-index.XXXXXX")"
+trap 'rm -f "$current_index_state"' EXIT
+for archive in "$conda_root"/*/*.conda "$conda_root"/*/*.tar.bz2; do
+  [[ -f "$archive" ]] || continue
+  "${checksum_command[@]}" "$archive"
+done > "$current_index_state"
+
+if [[ -f "$conda_root/$target_platform/repodata.json" &&
+      -f "$conda_root/noarch/repodata.json" ]] &&
+    cmp -s "$current_index_state" "$index_state"; then
+  log "Local channel unchanged; reusing index"
+else
+  log "Refreshing local channel index"
+  rattler-index fs "$conda_root" --force
+  mv "$current_index_state" "$index_state"
+fi
 
 package_specs=()
-install_args=(--repodata-ttl 0 --force-reinstall)
+install_args=(--repodata-ttl 3600 --force-reinstall)
 for package_file in "${package_files[@]}"; do
   package_stem="${package_file##*/}"
   package_stem="${package_stem%.conda}"
   # --force-reinstall can keep an older installed build despite an exact spec.
   if [[ ! -f "$destination/conda-meta/$package_stem.json" ]]; then
-    install_args=(--repodata-ttl 0)
+    install_args=(--repodata-ttl 3600)
   fi
   package_build="${package_stem##*-}"
   package_stem="${package_stem%-*}"
@@ -77,7 +103,8 @@ touch "$destination/conda-meta/history"
 
 # Installing by channel MatchSpec resolves runtime dependencies and relocates
 # prefixes. Passing archive paths directly would skip dependency resolution.
-micromamba install --yes --no-rc \
+log "Installing packages and dependencies using $project_root/.condarc"
+micromamba install --yes --rc-file "$project_root/.condarc" \
   --prefix "$destination" \
   --override-channels --channel "$conda_root" --channel conda-forge \
   "${install_args[@]}" \
@@ -95,3 +122,5 @@ if [[ "$target_platform" == osx-arm64 && " ${package_names[*]} " == *" vfkit "* 
     --entitlements "$destination/share/vfkit/vf.entitlements" \
     "$destination/bin/vfkit"
 fi
+
+log "Completed"
