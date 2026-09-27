@@ -1,0 +1,35 @@
+context:
+  version: "1.17.0"
+
+package:
+  name: firecracker
+  version: ${{ version }}
+
+source:
+  git: ssh://git@github.com/firecracker-microvm/firecracker.git
+  tag: v${{ version }}
+  depth: 1
+
+build:
+  number: 0
+  skip: target_platform != "linux-64"
+  script: build.sh
+
+requirements:
+  build:
+    - ${{ compiler('rust') }}
+    - git
+    - libseccomp
+  run:
+    - libgcc >=14
+
+tests:
+  - script:
+      - firecracker --version | grep -F "Firecracker v${{ version }}"
+
+about:
+  homepage: https://firecracker-microvm.github.io/
+  repository: https://github.com/firecracker-microvm/firecracker
+  license: Apache-2.0
+  license_file: LICENSE
+  summary: Secure and fast microVM virtualization
