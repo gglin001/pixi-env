@@ -1,0 +1,38 @@
+context:
+  version: "53.0"
+
+package:
+  name: cloud-hypervisor
+  version: ${{ version }}
+
+source:
+  git: ssh://git@github.com/cloud-hypervisor/cloud-hypervisor.git
+  tag: v${{ version }}
+  depth: 1
+
+build:
+  number: 0
+  skip: target_platform != "linux-64"
+  script: build.sh
+
+requirements:
+  build:
+    - ${{ compiler('c') }}
+    - ${{ compiler('rust') }}
+    - git
+
+tests:
+  - script:
+      - cloud-hypervisor --version | grep -Fx "cloud-hypervisor v${{ version }}"
+      - ch-remote --version | grep -Fx "ch-remote v${{ version }}"
+      - cloud-hypervisor --help
+      - ch-remote --help
+
+about:
+  homepage: https://www.cloudhypervisor.org/
+  repository: https://github.com/cloud-hypervisor/cloud-hypervisor
+  license: Apache-2.0 AND BSD-3-Clause
+  license_file:
+    - LICENSES/Apache-2.0.txt
+    - LICENSES/BSD-3-Clause.txt
+  summary: Virtual machine monitor for running modern cloud workloads
