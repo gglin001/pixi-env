@@ -12,7 +12,10 @@ source:
 
 build:
   number: 0
-  script: build.sh
+  script:
+    file: build.sh
+    env:
+      GITHUB_DOWNLOAD_PROXY: ${{ env.get('GITHUB_DOWNLOAD_PROXY', default='') }}
   dynamic_linking:
     # bwrap is finalized before its digest is embedded in codex.
     binary_relocation:

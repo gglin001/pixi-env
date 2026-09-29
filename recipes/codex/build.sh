@@ -21,6 +21,10 @@ STABLE_GIT_COMMIT="$(git -C "$SRC_DIR" rev-parse HEAD)"
 v8_version="$(python "$SRC_DIR/.github/scripts/rusty_v8_bazel.py" resolved-v8-crate-version)"
 v8_dir="$BUILD_DIR/rusty-v8/$v8_version/$rust_target"
 v8_base="https://github.com/openai/codex/releases/download/rusty-v8-v$v8_version"
+# Public download proxies accept the original URL after their own prefix.
+if [[ -n "${GITHUB_DOWNLOAD_PROXY:-}" ]]; then
+  v8_base="${GITHUB_DOWNLOAD_PROXY%/}/$v8_base"
+fi
 v8_profile=ptrcomp_sandbox_release
 v8_archive="librusty_v8_${v8_profile}_${rust_target}.a.gz"
 v8_binding="src_binding_${v8_profile}_${rust_target}.rs"
