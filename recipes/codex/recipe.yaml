@@ -1,0 +1,63 @@
+context:
+  version: "0.159.0"
+
+package:
+  name: codex
+  version: ${{ version }}
+
+source:
+  git: ssh://org-14957082@github.com/openai/codex.git
+  tag: rust-v${{ version }}
+  depth: 1
+
+build:
+  number: 0
+  script: build.sh
+  dynamic_linking:
+    # bwrap is finalized before its digest is embedded in codex.
+    binary_relocation:
+      - bin/codex
+      - bin/codex-code-mode-host
+      - bin/codex-responses-api-proxy
+
+requirements:
+  build:
+    - ${{ compiler('c') }}
+    - ${{ compiler('cxx') }}
+    - ${{ compiler('rust') }}
+    - rust =1.95.0
+    - git
+    - curl
+    - python >=3.11
+    - pkg-config
+    - cmake
+    - make
+    - if: linux
+      then: patchelf
+  host:
+    - openssl >=3,<4
+    - if: linux
+      then: libcap
+  run:
+    - ripgrep
+
+tests:
+  - script:
+      - test "$(codex --version)" = "codex-cli ${{ version }}"
+      - codex --help
+      - codex exec --help
+      - codex app-server --help
+      - codex-code-mode-host --help
+      - codex-responses-api-proxy --help
+      - if: linux
+        then: cd "$PREFIX" && sha256sum --check share/codex/bwrap.sha256
+
+about:
+  homepage: https://github.com/openai/codex
+  repository: https://github.com/openai/codex
+  license: Apache-2.0 AND LGPL-2.0-or-later
+  license_file:
+    - LICENSE
+    - NOTICE
+    - codex-rs/vendor/bubblewrap/COPYING
+  summary: OpenAI coding agent for the terminal
