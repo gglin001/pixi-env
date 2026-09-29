@@ -1,0 +1,43 @@
+context:
+  version: "0.87.1"
+
+package:
+  name: pi
+  version: ${{ version }}
+
+source:
+  git: ssh://git@github.com/earendil-works/pi.git
+  tag: v${{ version }}
+  depth: 1
+
+build:
+  number: 0
+  skip: target_platform != "osx-arm64" and target_platform != "linux-64"
+  script: build.sh
+
+requirements:
+  build:
+    - nodejs >=24,<25
+    - ${{ compiler('c') }}
+  host:
+    - if: linux
+      then: libxcb
+  run:
+    - nodejs >=24,<25
+
+tests:
+  - script:
+      - export PI_OFFLINE=1 PI_SKIP_VERSION_CHECK=1 PI_CODING_AGENT_DIR="$PWD/pi-test-home"
+      - pi --version | grep -Fx "${{ version }}"
+      - pi --help
+      # Listing only exposes configured providers; this dummy key is never used
+      # for a request because PI_OFFLINE is enabled and no prompt is supplied.
+      - ANTHROPIC_API_KEY=pi-package-test pi --list-models > models.txt
+      - grep -F anthropic models.txt
+
+about:
+  homepage: https://pi.dev/
+  repository: https://github.com/earendil-works/pi
+  license: MIT
+  license_file: LICENSE
+  summary: AI coding assistant with a terminal UI and extensible TypeScript runtime
