@@ -19,6 +19,7 @@ Optional GitHub download acceleration for Codex's V8 files:
 ```sh
 GITHUB_DOWNLOAD_PROXY=https://gh-proxy.com pixi run build codex
 # Alternative: GITHUB_DOWNLOAD_PROXY=https://ghfast.top
+# Alternative: GITHUB_DOWNLOAD_PROXY=https://ghproxy.net
 ```
 
 Unset it for direct downloads. Cached files and upstream checksum verification
